@@ -149,7 +149,7 @@ use soroban_sdk::{contractclient, contracterror, contracttype, Address, Env, Str
 /// successful call's state mutations, so this ordering is the defense.
 /// See the crate-level docs for the full argument. Consumers that only
 /// read the registry are unaffected by any of this.
-[contractclient(name = "RegistryInterfaceClient")]
+#[contractclient(name = "RegistryInterfaceClient")]
 pub trait RegistryInterface {
     /// Which build of the registry is live at this address.
     fn get_version(env: Env) -> u32;
@@ -383,7 +383,7 @@ pub trait RegistryInterface {
 /// variant that is missing here turns a well-defined error into an opaque
 /// decode failure. `tests/interface_matches_registry.rs` pins the whole list
 /// against the contract's spec, so the two cannot drift.
-[contracterror]
+#[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RegistryError {
@@ -501,7 +501,9 @@ pub struct ContractEntry {
     pub registered_at: u64,
 }
 
-/// A category a registration can be filed under.
+/// The kind of action a proposal carries.
+///
+/// Duplicated from `lumina-registry`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposalAction {
@@ -626,7 +628,9 @@ pub struct ContractProfile {
 }
 }
 
-/// A page of registrations with a `continuation` flag.
+/// The reputation signal for a registration.
+///
+/// Duplicated from `lumina-registry`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractPage {
@@ -637,7 +641,9 @@ pub struct ContractPage {
 }
 }
 
-/// A page of profiles with a `continuation` flag.
+/// Aggregate registry counters.
+///
+/// Duplicated from `lumina-registry`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractProfilePage {
