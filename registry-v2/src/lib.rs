@@ -13,14 +13,17 @@
 //! Lumina Registry v2 — the upgrade target used by the registry's upgrade tests.
 //!
 //! This crate exists so `registry`'s test suite can perform a *real* Soroban
-//! upgrade: deploy v1 from its wasm, register contracts, call `upgrade()` with
-//! this crate's wasm hash, and then prove that the swapped-in code both sees the
-//! v1 storage and exposes functionality v1 never had.
+//! upgrade: deploy the current release from its wasm, register contracts, drive
+//! `propose_upgrade` → `approve_proposal` → `execute_proposal` with this crate's
+//! wasm hash, and then prove that the swapped-in code both sees the v1 storage
+//! and exposes functionality v1 never had.
 //!
 //! It is deliberately **not** a full re-implementation of the registry. It
-//! carries only what the upgrade test needs to observe, plus `upgrade()` itself
-//! so an upgraded registry stays upgradeable. It is not deployed anywhere; a
-//! real v2 would be the registry crate itself with `CONTRACT_VERSION` bumped.
+//! carries only what the upgrade test needs to observe. It deliberately does
+//! **not** export an `upgrade` entrypoint: code changes are governance-only
+//! (#36), and a fixture with a single-signer upgrade would model the very path
+//! that was removed. It is not deployed anywhere; a real v2 would be the
+//! registry crate itself with `CONTRACT_VERSION` bumped.
 //!
 //! ## Why the types are duplicated rather than imported
 //!
@@ -44,9 +47,8 @@
 //! `registry` crate's `fixture_sync` test. When a storage type changes, update
 //! this file in the same commit; CI fails otherwise.
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Vec,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Vec};
+
 /// Always `lumina_registry::CONTRACT_VERSION + 1` — the value the upgrade test
 /// reads back to confirm the new code is the one now executing. The tests
 /// assert the relationship rather than the literal, so bumping the registry's
@@ -214,108 +216,5 @@ impl LuminaRegistryV2 {
         }
 
         active
-    }
-
-    /// Remap every registration from one category to another.
-    ///
-    /// Processes at most `limit` registrations per call so the work fits in a
-    /// single transaction. If more remain, the caller must invoke again; the
-    /// cursor is persisted under `DataKey::MigrationCursor` and resumes from
-    /// where the previous call stopped. When the migration completes the
-    /// cursor is cleared and a `CategoryRemapped` event is emitted.
-    pub fn migrate_category(
-        env: Env,
-        admin: Address,
-        from_category: u32,
-        to_category: u32,
-        limit: u32,
-    ) -> Result<u32, RegistryError> {
-        admin.require_auth();
-
-        let stored: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(RegistryError::NotInitialized)?;
-        if admin != stored {
-            return Err(RegistryError::Unauthorized);
-        }
-        if limit == 0 {
-            return Err(RegistryError::InvalidMigration);
-        }
-
-        let all: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&DataKey::AllContracts)
-            .unwrap_or(Vec::new(&env));
-
-        let start: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MigrationCursor)
-            .unwrap_or(0);
-
-        let mut i = start;
-        let mut remapped = 0u32;
-        while i < all.len() && remapped < limit {
-            if let Some(contract_id) = all.get(i) {
-                if let Some(mut entry) = env
-                    .storage()
-                    .persistent()
-                    .get::<DataKey, ContractEntry>(&DataKey::Contract(contract_id.clone()))
-                {
-                    let _ = from_category;
-                    let _ = to_category;
-                    entry.active = entry.active;
-                    env.storage()
-                        .persistent()
-                        .set(&DataKey::Contract(contract_id), &entry);
-                    remapped += 1;
-                }
-            }
-            i += 1;
-        }
-
-        if i >= all.len() {
-            env.storage().instance().remove(&DataKey::MigrationCursor);
-        } else {
-            env.storage().instance().set(&DataKey::MigrationCursor, &i);
-        }
-
-        env.events().publish(
-            (soroban_sdk::symbol_short!("cat_remap"),),
-            CategoryRemapped {
-                from_category,
-                to_category,
-                remapped,
-            },
-        );
-
-        Ok(remapped)
-    }
-
-    /// Same admin gate as v1, so an upgraded registry can be upgraded again.
-    ///
-    /// If v1's `upgrade` signature or admin check changes, mirror it here and
-    /// re-run the `fixture_sync` test.
-    pub fn upgrade(
-        env: Env,
-        admin: Address,
-        new_wasm_hash: BytesN<32>,
-    ) -> Result<(), RegistryError> {
-        admin.require_auth();
-
-        let stored: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(RegistryError::NotInitialized)?;
-        if admin != stored {
-            return Err(RegistryError::Unauthorized);
-        }
-
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        Ok(())
     }
 }

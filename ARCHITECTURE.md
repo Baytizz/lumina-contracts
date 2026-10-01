@@ -59,7 +59,7 @@ temporary storage.
 | `AllowlistEnabled`, `RegistrationRateLimit`, `RegistrationRateWindow` | registration policy | Optional admission and fixed-window controls. |
 | `RegistrationFee` | fee denominated in the stake token | Zero keeps registration free. |
 | `TotalStaked`, `VerifiedCount` | maintained aggregate counters | Support constant-cost statistics. |
-| `Admin` | original single-admin address | Retained solely for storage and upgrade compatibility. |
+| `Admin` | original single-admin address | Deprecated compatibility slot. No longer written by `initialize` / `__constructor` and **not consulted for authorization**; `get_admin` reads it only as a fallback for pre-multisig deployments. |
 
 ### Persistent storage
 
@@ -114,9 +114,9 @@ release and documented as deprecated.
    owner's index, and each category index, then advances the live and lifetime
    counters.
 3. The owner may update metadata, tags, and categories. Ownership transfer can
-   be authorized by the current owner, a current multisig admin, or the legacy
-   single admin retained for upgrade compatibility; it moves the address from
-   the previous owner's index to the new owner's index.
+   be authorized by the current owner or a current multisig admin; it moves the
+   address from the previous owner's index to the new owner's index. The legacy
+   single-admin slot carries no authority and is not accepted here.
 4. `deactivate` is an immediate owner action. It clears only `active`; listing
    views filter the entry out while its metadata, reputation, and history
    remain available. Governance may deactivate somebody else's registration
@@ -289,7 +289,7 @@ properties it checks, with representative test names for quick navigation:
 | Withdrawal is refused until the unbonding period elapses, and the unbonding period exceeds the governance timelock. | `withdraw_before_unbonding_period_is_refused`, `unbonding_period_exceeds_governance_timelock` |
 | Verification is governance-only and independent from self-service attestations. | `a_registrant_cannot_verify_their_own_contract`, `attesting_does_not_affect_governance_only_verification`, `attesting_does_not_grant_verification_or_privilege_to_the_attester` |
 | Deregistration removes live indexes and state only after safe exit, while retaining slash history and lifetime totals. | `deregister_requires_deactivated_and_unstaked`, `deregister_removes_every_index_reference_and_decrements_the_live_count`, `deregister_keeps_slash_history_for_audit`, `contract_count_is_live_and_total_registered_is_lifetime` |
-| Code upgrades preserve compatible storage and authentication. | `upgrade_swaps_code_and_preserves_registrations`, `upgrade_carries_admin_across_swap`, `upgraded_registry_can_be_rolled_back` |
+| Code upgrades are governance-only and preserve compatible storage. | `upgrade_swaps_code_and_preserves_registrations`, `upgrade_retires_previous_interface`, `propose_upgrade_by_non_admin_is_rejected`, `governance_upgrade_event_reports_the_replaced_version` |
 
 Additional interface tests in
 [`registry-interface/tests/interface_matches_registry.rs`](./registry-interface/tests/interface_matches_registry.rs)
@@ -299,8 +299,10 @@ storage compatibility across a wasm upgrade.
 
 ## Upgrade boundaries
 
-`upgrade` swaps the wasm while preserving the contract address and storage.
-That makes storage encoding part of the long-lived protocol:
+An upgrade is a governance proposal (`propose_upgrade` → `approve_proposal` →
+`execute_proposal`) that swaps the wasm while preserving the contract address
+and storage. There is no single-signer upgrade entrypoint, so no one key can
+change the code. That makes storage encoding part of the long-lived protocol:
 
 - Adding a new `DataKey` variant is compatible; renaming or repurposing an
   existing variant is not.
