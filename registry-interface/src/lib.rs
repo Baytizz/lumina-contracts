@@ -612,6 +612,8 @@ pub struct Reputation {
     /// in progress. Distinct from `withdraw_locked_until`, which is the
     /// post-slash lock.
     pub unbonding_completes_at: u32,
+    /// Whether the registration is currently withdrawal-locked.
+    pub withdraw_locked: bool,
 }
 }
 

@@ -1,4 +1,4 @@
-﻿// Copyright (c) Lumina contributors
+// Copyright (c) Lumina contributors
 // SPDX-License-Identifier: MIT
 #![no_std]
 // Soroban's `#[contracttype]`, `#[contracterror]`, `#[contractimpl]` and
@@ -408,6 +408,8 @@ pub struct Reputation {
     pub slashed_total: i128,
     /// Ledger before which `withdraw_stake` is refused. Zero once clear.
     pub withdraw_locked_until: u32,
+    /// Whether the registration is currently withdrawal-locked.
+    pub withdraw_locked: bool,
 }
 
 /// A registration joined with its reputation — what a discovery client wants.
@@ -2836,6 +2838,10 @@ env.storage().persistent()
             slashed_total += record.amount;
         }
 
+        let withdraw_locked_until = env.storage().persistent()
+            .get(&DataKey::WithdrawLockedUntil(contract_id.clone()))
+            .unwrap_or(0);
+
         let reputation = Reputation {
             stake: env
                 .storage()
@@ -2848,11 +2854,8 @@ env.storage().persistent()
                 .get(&DataKey::Verified(contract_id.clone()))
                 .unwrap_or(false),
             slashed_total,
-            withdraw_locked_until: env
-                .storage()
-                .persistent()
-                .get(&DataKey::WithdrawLockedUntil(contract_id.clone()))
-                .unwrap_or(0),
+            withdraw_locked_until,
+            withdraw_locked: env.ledger().sequence() < withdraw_locked_until,
         };
 
         Ok(ContractProfile {
@@ -3941,6 +3944,8 @@ impl LuminaRegistry {
             slashed_total += record.amount;
         }
 
+        let withdraw_locked_until = Self::withdraw_locked_until(env, contract_id);
+
         Reputation {
             stake: Self::stake_of(env, contract_id),
             verified: env
@@ -3949,7 +3954,8 @@ impl LuminaRegistry {
                 .get(&DataKey::Verified(contract_id.clone()))
                 .unwrap_or(false),
             slashed_total,
-            withdraw_locked_until: Self::withdraw_locked_until(env, contract_id),
+            withdraw_locked_until,
+            withdraw_locked: env.ledger().sequence() < withdraw_locked_until,
         }
     }
 
@@ -6203,6 +6209,7 @@ mod test {
         assert!(!reputation.verified);
         assert_eq!(reputation.slashed_total, 0);
         assert_eq!(reputation.withdraw_locked_until, 0);
+        assert!(!reputation.withdraw_locked);
         assert_solvency(&env, &client, &token_id);
     }
 
@@ -6304,6 +6311,7 @@ mod test {
         assert_eq!(reputation.stake, 750);
         assert_eq!(reputation.slashed_total, 250);
         assert!(reputation.withdraw_locked_until > env.ledger().sequence());
+        assert!(reputation.withdraw_locked);
         assert_eq!(balance(&env, &token_id, &treasury), 250);
 
         // Trying to exit immediately fails on both counts, in order: still
@@ -6321,6 +6329,7 @@ mod test {
         // Once the lock expires the remainder — and only the remainder —
         // comes back.
         advance_ledger(&env, SLASH_LOCK_LEDGERS);
+        assert!(!client.get_reputation(&target).withdraw_locked);
         assert_eq!(client.withdraw_stake(&owner, &target), 750);
         assert_eq!(balance(&env, &token_id, &owner), 750);
         assert_eq!(balance(&env, &token_id, &client.address), 0);
